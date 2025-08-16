@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.13)
+cmake_minimum_required (VERSION 3.20)
 
 set (CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
 
@@ -31,10 +31,15 @@ set (SWIG_SOURCE_DIR ${SWIG_ROOT}/Source CACHE INTERNAL "Path of swig sources" F
 set (PACKAGE_NAME swig)
 set (PACKAGE_VERSION ${SWIG_VERSION})
 
+# TODO: decide on <cmd> (<args>) or <cmd>(<args>) for CMake formatting
+
 # Configure
 # ---------
 
-list (APPEND CMAKE_MODULE_PATH ${SWIG_ROOT}/Tools/cmake)
+# TODO: maybe there should be a dedicated CMake modules directory
+list (APPEND CMAKE_MODULE_PATH ${SWIG_ROOT}/Tools/cmake ${SWIG_ROOT}/CMake)
+
+include (swig_add_python_example)
 
 include (CheckIncludeFiles)
 include (CheckIncludeFile)
@@ -44,6 +49,7 @@ include (CheckSymbolExists)
 include (CheckFunctionExists)
 include (CheckLibraryExists)
 include (CheckCSourceCompiles)
+include (CTest)
 
 # HACK: didn't get the bool check working for Visual Studio 2008
 if (MSVC)
@@ -74,11 +80,38 @@ if (MSVC)
   set (CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif ()
 
+option (SWIG_BUILD_EXAMPLES "Build SWIG examples" OFF)
+option (SWIG_BUILD_TESTS "Build SWIG tests" OFF)
 option (WITH_PCRE "Enable PCRE" ON)
+
+# determine if multi-config generator. this is important with regards to build
+# directory structure, where typically per-config subdirectories are used
+get_property(SWIG_IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(SWIG_IS_MULTI_CONFIG)
+  message(STATUS "Build config: Multi")
+else()
+  message(STATUS "Build config: ${CMAKE_BUILD_TYPE}")  # see above
+endif()
+
+# report the CMake generator being used
+message(STATUS "Build backend: ${CMAKE_GENERATOR}")
+
+if(SWIG_BUILD_EXAMPLES)
+  message(STATUS "Build examples: Yes")
+else()
+  message(STATUS "Build examples: No")
+endif()
+
+if(SWIG_BUILD_TESTS)
+  message(STATUS "Build test suite: Yes")
+else()
+  message(STATUS "Build test suite: No")
+endif()
+
 if (WITH_PCRE)
   find_package (PCRE2 10.39 REQUIRED COMPONENTS 8BIT)
   set (HAVE_PCRE 1)
-endif()
+endif ()
 
 #if (WIN32)
 #  file (TO_NATIVE_PATH ${CMAKE_INSTALL_PREFIX}/${SWIG_LIB} SWIG_LIB_WIN_UNIX)
@@ -125,6 +158,8 @@ install (FILES ${CMAKE_CURRENT_BINARY_DIR}/swigwarn.swg DESTINATION ${SWIG_LIB})
 
 # sources
 # ---------
+# note: using GLOB is not recommended for IDE integration or auto-detecting if
+# configuration needs to be re-run. it's ok for now
 file (GLOB DOH_SOURCES ${SWIG_SOURCE_DIR}/DOH/*.c)
 file (GLOB CPARSE_SOURCES ${SWIG_SOURCE_DIR}/CParse/*.c)
 list (REMOVE_ITEM CPARSE_SOURCES ${SWIG_SOURCE_DIR}/CParse/parser.c)
@@ -158,11 +193,17 @@ set (CPACK_SOURCE_IGNORE_FILES "/.git;/build;.*~;${CPACK_SOURCE_IGNORE_FILES}")
 set (CPACK_SOURCE_PACKAGE_FILE_NAME ${PACKAGE_NAME}-${PACKAGE_VERSION})
 include (CPack)
 
-# few tests
-enable_testing ()
+# SWIG smoke tests
 add_test (NAME cmd_version COMMAND swig -version)
 add_test (NAME cmd_pcreversion COMMAND swig -pcreversion)
 add_test (NAME cmd_swiglib COMMAND swig -swiglib)
 add_test (NAME cmd_external_runtime COMMAND swig -external-runtime ext_rt.h)
-set_tests_properties(cmd_external_runtime PROPERTIES ENVIRONMENT "SWIG_LIB=${PROJECT_SOURCE_DIR}/Lib")
+set_tests_properties(
+  cmd_external_runtime PROPERTIES
+  ENVIRONMENT "SWIG_LIB=${PROJECT_SOURCE_DIR}/Lib"
+)
 
+# Examples contains both examples and the test suite
+if(SWIG_BUILD_EXAMPLES OR SWIG_BUILD_TESTS)
+  add_subdirectory(Examples)
+endif()
