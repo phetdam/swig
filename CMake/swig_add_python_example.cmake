@@ -133,13 +133,11 @@ function(swig_add_python_example name)
             )
         endif()
     endforeach()
-    # register test. must run in same directory as the extension + wrapper
-    # modules which for multi-config generators is in per-config directory
+    # register test. run in source directory to emulate "manual" running
     add_test(
         NAME example_python_${name}
-        COMMAND ${Python_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DRIVER}
-        WORKING_DIRECTORY
-            ${CMAKE_CURRENT_BINARY_DIR}$<${SWIG_IS_MULTI_CONFIG}:/$<CONFIG>>
+        COMMAND ${Python_EXECUTABLE} ${ARG_DRIVER}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
     # ensure PYTHONPATH includes CMAKE_CURRENT_BINARY_DIR with per-config
     # subdirectory as required so Python can correctly load the modules
