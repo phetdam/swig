@@ -65,8 +65,8 @@ function(swig_add_python_example name)
         # SWIG include paths into local Lib
         set(
             swig_includes
+            -I${SWIG_ROOT}/Lib/python  # for Python-specific (must go first)
             -I${SWIG_ROOT}/Lib
-            -I${SWIG_ROOT}/Lib/python  # for Python-specific
             -I${PROJECT_BINARY_DIR}  # for swigwarn.swg
         )
         # C++ wrapper rule
