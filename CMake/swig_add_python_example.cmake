@@ -48,10 +48,12 @@ function(swig_add_python_example name)
     # add static library for sources
     if(ARG_SOURCES)
         add_library(swig_python_example_${name}_lib STATIC ${ARG_SOURCES})
-        # e.g. ensure -fPIC is used with GCC. ignored for MSVC
+        # ensure -fPIC is used with GCC/Clang (ignored for MSVC) and ensure
+        # MSVC uses the non-debug C runtime (ignored for non-MSVC)
         set_target_properties(
             swig_python_example_${name}_lib PROPERTIES
             POSITION_INDEPENDENT_CODE TRUE
+            MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         )
     endif()
     # get file path to built SWIG
