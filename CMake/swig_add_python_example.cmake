@@ -15,7 +15,12 @@ include_guard(GLOBAL)
 # for the test driver script, typically runme.py. The working directory of the
 # test is will be the directory in which swig_add_python_example was called.
 #
-# This function correctly tracks SWIG dependencies via -MMD -MF <depfile>.
+# This function correctly tracks SWIG dependencies via -MMD -MF <depfile>. It
+# expects that each example is in its own source directory and should be
+# invoked in the CMakeLists.txt in that source directory to ensure that each
+# generate C/C++ file gets its own build directory. This is because many
+# examples use example.i or (foo|bar|spam).i and without directory namespacing,
+# there would be conflicts in the generated file paths.
 #
 # Arguments:
 #   name                        Example/target name
