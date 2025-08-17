@@ -18,8 +18,8 @@ set(
         funcptr2
         functor
         import
-        # TODO: may require a bespoke approach
-        # import_packages
+        # note: uses swig_add_python_example GRAFT_FILES and DRIVER_DIRECTORY
+        import_packages
         import_template
         libffi
         multimap
