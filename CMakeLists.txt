@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.20)
+cmake_minimum_required (VERSION 3.21)
 
 set (CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
 
@@ -146,11 +146,25 @@ BISON_TARGET (swig_parser
     ${PROJECT_BINARY_DIR}/Source/CParse/parser.c
 )
 
-# generate swigwarn.swg
-file (READ ${SWIG_SOURCE_DIR}/Include/swigwarn.h SWIG_WARN_H)
-string (REGEX REPLACE "#define WARN([^ \\t]*)[ \\t]*([0-9]+)" "%define SWIGWARN\\1 \\2 %enddef" SWIG_WARN_SWG ${SWIG_WARN_H})
-file (WRITE ${CMAKE_CURRENT_BINARY_DIR}/swigwarn.swg ${SWIG_WARN_SWG})
-set_property (SOURCE ${CMAKE_CURRENT_BINARY_DIR}/swigwarn.swg PROPERTY GENERATED 1)
+# custom rule for swigwarn.swg generation. this avoids excessive test/example
+# rebuild because swigwarn.swg is a dependency that swig -MMD -MF will find
+add_custom_command(
+  OUTPUT swigwarn.swg
+  COMMAND ${CMAKE_COMMAND}
+          -DSWIG_WARN_H=${SWIG_SOURCE_DIR}/Include/swigwarn.h
+          -DSWIG_WARN_SWG=${CMAKE_CURRENT_BINARY_DIR}/swigwarn.swg
+          -P ${SWIG_ROOT}/CMake/swigwarn_generate.cmake
+  MAIN_DEPENDENCY ${SWIG_SOURCE_DIR}/Include/swigwarn.h
+  COMMENT "Generating swigwarn.swg from swigwarn.h"
+  VERBATIM
+)
+# custom target to trigger swigwarn.swg generation as necessary
+# note: custom commands should depend on this target to avoid multiple
+# swigwarn.swg generation calls. see add_custom_command documentation
+add_custom_target(
+  swigwarn_generate ALL
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/swigwarn.swg
+)
 
 # install lib
 install (DIRECTORY ${SWIG_ROOT}/Lib/ DESTINATION ${SWIG_LIB})
@@ -177,10 +191,16 @@ add_executable (swig
   ${CORE_SOURCES}
   ${PREPROCESSOR_SOURCES}
   ${PROJECT_BINARY_DIR}/Source/Include/swigconfig.h
+  # TODO: consider removal since swigwarn_generate handles this already
   ${SWIG_SOURCE_DIR}/Include/swigwarn.h
   ${PROJECT_BINARY_DIR}/Source/CParse/parser.c
   ${PROJECT_BINARY_DIR}/Source/CParse/parser.h
 )
+# ensure that swigwarn.swg is generated before building. for some reason,
+# without this target-level dependency, parallel builds end up calling the
+# swigwarn.swg generation step twice. this seems due to swigwarn.h being
+# included in the SWIG target's dependency list
+add_dependencies(swig swigwarn_generate)
 if (PCRE2_FOUND)
   target_link_libraries (swig PRIVATE PCRE2::8BIT)
 endif ()
