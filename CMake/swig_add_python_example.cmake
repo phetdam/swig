@@ -12,28 +12,31 @@ include_guard(GLOBAL)
 # statically linked into each module as necessary.
 #
 # A CTest test will be registered for the example with PYTHONPATH correctly set
-# for the test driver script, typically runme.py.
+# for the test driver script, typically runme.py. The working directory of the
+# test is will be the directory in which swig_add_python_example was called.
 #
 # Arguments:
 #   name                        Example/target name
-#   INTERFACES interfaces...    SWIG .i interface file(s) to compile as modules
-#   DRIVER driver               Python script run as the test driver
+#   [CXX]                       Enable SWIG C++ processing, e.g. with -c++
+#   [INTERFACES files...]       SWIG .i interface file(s) to compile as Python
+#                               extension modules separately. If none are
+#                               provided, example.i is assumed to be present
+#   [DRIVER driver]             Python script run as the test driver. If this
+#                               is omitted, runme.py is assumed as the driver
 #   [SOURCES sources...]        Additional C/C++ sources used in module
 #                               compilation. These are compiled into a static
 #                               library of position-independent code and linked
-#                               as necessary into each SWIG module.
-#   [CXX]                       Enable SWIG C++ processing, e.g. with -c++
+#                               as necessary into each SWIG module if present.
 #   [OPTIONS options...]        Extra SWIG options to use
 #
 function(swig_add_python_example name)
     cmake_parse_arguments(ARG "CXX" "DRIVER" "INTERFACES;OPTIONS;SOURCES" ${ARGN})
-    # DRIVER + INTERFACES required
-    # TODO: if not provided, assume example.i and runme.py
+    # DRIVER + INTERFACES have defaults
     if(NOT ARG_DRIVER)
-        message(FATAL_ERROR "Missing required Python test driver")
+        set(ARG_DRIVER runme.py)
     endif()
     if(NOT ARG_INTERFACES)
-        message(FATAL_ERROR "Missing required SWIG .i interface(s)")
+        set(ARG_INTERFACES example.i)
     endif()
     # add static library for sources
     if(ARG_SOURCES)
