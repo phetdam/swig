@@ -125,7 +125,7 @@ function(swig_add_python_example name)
             swig_python_example_${name} PROPERTIES
             MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         )
-        # pick up curernt source directory as include path
+        # pick up current source directory as include path
         target_include_directories(
             swig_python_example_${name} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
@@ -138,7 +138,7 @@ function(swig_add_python_example name)
             )
         endif()
     endforeach()
-    # register test. run in source directory to emulate "manual" running
+    # register test. run in source directory to emulate invocation by hand
     add_test(
         NAME example_python_${name}
         COMMAND ${Python_EXECUTABLE} ${ARG_DRIVER}
