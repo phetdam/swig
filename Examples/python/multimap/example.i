@@ -1,6 +1,13 @@
 /* File : example.i */
 %module example
 
+%begin %{
+/* ensure MSVC links the non-debug Python runtime */
+#ifdef _MSC_VER
+#define SWIG_PYTHON_INTERPRETER_NO_DEBUG
+#endif  /* _MSC_VER */
+%}
+
 %{
 extern int gcd(int x, int y);
 extern int gcdmain(int argc, char *argv[]);
@@ -28,9 +35,9 @@ extern int    gcd(int x, int y);
   for (i = 0; i < $1; i++) {
     PyObject *s = PyList_GetItem($input,i);
 %#if PY_VERSION_HEX >= 0x03000000
-    if (!PyUnicode_Check(s)) 
+    if (!PyUnicode_Check(s))
 %#else
-    if (!PyString_Check(s)) 
+    if (!PyString_Check(s))
 %#endif
     {
       free($2);
@@ -141,7 +148,7 @@ extern int count(char *bytes, int len, char c);
 %#endif
    $result = SWIG_AppendOutput($result, o);
    free($1);
-}   
+}
 
 extern void capitalize(char *str, int len);
 

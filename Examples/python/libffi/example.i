@@ -1,6 +1,13 @@
 /* File : example.i */
 %module example
 
+%begin %{
+/* ensure MSVC links the non-debug Python runtime */
+#ifdef _MSC_VER
+#define SWIG_PYTHON_INTERPRETER_NO_DEBUG
+#endif  /* _MSC_VER */
+%}
+
 %{
 #ifdef _WIN32
 # include <process.h>
@@ -33,7 +40,7 @@
    $1 = (void *) argv;
 }
 
-/* Rewrite the function call, using libffi */    
+/* Rewrite the function call, using libffi */
 %feature("action") execlp {
   int       i, vc;
   ffi_cif   cif;
@@ -49,7 +56,7 @@
   /* Set up path parameter */
   types[0] = &ffi_type_pointer;
   values[0] = &arg1;
-  
+
   /* Set up first argument */
   types[1] = &ffi_type_pointer;
   values[1] = &arg2;
@@ -121,7 +128,7 @@ int execlp(const char *path, const char *arg1, ...);
   $2 = (void *) argv;
 }
 
-/* Rewrite the function call, using libffi */    
+/* Rewrite the function call, using libffi */
 %feature("action") printf {
   int       i, vc;
   ffi_cif   cif;
@@ -155,7 +162,7 @@ int execlp(const char *path, const char *arg1, ...);
       break;
     default:
       abort();    /* Whoa! We're seriously hosed */
-      break;   
+      break;
     }
   }
   if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, vc+1,
@@ -176,6 +183,6 @@ int execlp(const char *path, const char *arg1, ...);
 int printf(const char *fmt, ...);
 
 
-  
+
 
 

@@ -1,6 +1,15 @@
 /* File : example.i */
 %module example
+
 #pragma SWIG nowarn=SWIGWARN_IGNORE_OPERATOR_EQ
+
+%begin %{
+/* ensure MSVC links the non-debug Python runtime */
+#ifdef _MSC_VER
+#define SWIG_PYTHON_INTERPRETER_NO_DEBUG
+#endif  /* _MSC_VER */
+%}
+
 %{
 #include "example.h"
 %}
@@ -25,5 +34,3 @@
        return temp;
    }
 };
-
-
