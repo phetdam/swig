@@ -18,7 +18,7 @@ set(
         funcptr2
         functor
         import
-        # TODO: this requires a bespoke approach
+        # TODO: may require a bespoke approach
         # import_packages
         import_template
         libffi
@@ -29,6 +29,9 @@ set(
         pointer
         reference
         simple
+        smartptr
+        std_map
+        std_vector
         # TODO: incomplete
 )
 # add all the Python example directories. most will be some simple invocation
