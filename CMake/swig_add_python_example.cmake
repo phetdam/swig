@@ -34,10 +34,16 @@ include_guard(GLOBAL)
 #                               compilation. These are compiled into a static
 #                               library of position-independent code and linked
 #                               as necessary into each SWIG module if present.
+#   [LIBRARIES libs...]         Additional libraries used in module linking.
+#                               These are passed to target_link_libraries and
+#                               so can be targets, library files, or -l args.
 #   [OPTIONS options...]        Extra SWIG options to use
 #
 function(swig_add_python_example name)
-    cmake_parse_arguments(ARG "CXX" "DRIVER" "INTERFACES;OPTIONS;SOURCES" ${ARGN})
+    cmake_parse_arguments(
+        ARG
+        "CXX" "DRIVER" "INTERFACES;OPTIONS;SOURCES;LIBRARIES" ${ARGN}
+    )
     # DRIVER + INTERFACES have defaults
     if(NOT ARG_DRIVER)
         set(ARG_DRIVER runme.py)
@@ -46,6 +52,7 @@ function(swig_add_python_example name)
         set(ARG_INTERFACES example.i)
     endif()
     # add static library for sources
+    # TODO: consider using object library
     if(ARG_SOURCES)
         add_library(swig_python_${name}_example_lib STATIC ${ARG_SOURCES})
         # ensure -fPIC is used with GCC/Clang (ignored for MSVC) and ensure
@@ -55,6 +62,7 @@ function(swig_add_python_example name)
             POSITION_INDEPENDENT_CODE TRUE
             MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         )
+        # TODO: enable linking other libraries here too
     endif()
     # get file path to built SWIG
     # for each interface
@@ -81,7 +89,7 @@ function(swig_add_python_example name)
                     # support multi-config generator as necessary
                     -outdir $<IF:${SWIG_IS_MULTI_CONFIG},$<CONFIG>,.>
                     # enable use of extension module to be same as target name
-                    -interface swig_python_example_${name}
+                    -interface swig_python_${name}_${swig_input_name}
                     ${CMAKE_CURRENT_SOURCE_DIR}/${swig_input}
             # need swigwarn_generate dependency to prevent repeated
             # swigwarn.swg generation if swigwarn.h changes
@@ -102,7 +110,7 @@ function(swig_add_python_example name)
                     # support multi-config generator as necessary
                     -outdir $<IF:${SWIG_IS_MULTI_CONFIG},$<CONFIG>,.>
                     # enable use of extension module to be same as target name
-                    -interface swig_python_example_${name}
+                    -interface swig_python_${name}_${swig_input_name}
                     ${CMAKE_CURRENT_SOURCE_DIR}/${swig_input}
             # need swigwarn_generate dependency to prevent repeated
             # swigwarn.swg generation if swigwarn.h changes
@@ -135,21 +143,28 @@ function(swig_add_python_example name)
         # link against helper library if it is defined
         if(TARGET swig_python_${name}_example_lib)
             target_link_libraries(
-                swig_python_${name}_${swig_input_name} PRIVATE
-                swig_python_${name}_example_lib
+                swig_python_${name}_${swig_input_name}
+                PRIVATE swig_python_${name}_example_lib
+            )
+        endif()
+        # link additional libraries if any
+        if(ARG_LIBRARIES)
+            target_link_libraries(
+                swig_python_${name}_${swig_input_name}
+                PRIVATE ${ARG_LIBRARIES}
             )
         endif()
     endforeach()
     # register test. run in source directory to emulate invocation by hand
     add_test(
-        NAME example_python_${name}
+        NAME python_${name}_example
         COMMAND ${Python_EXECUTABLE} ${ARG_DRIVER}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
     # ensure PYTHONPATH includes CMAKE_CURRENT_BINARY_DIR with per-config
     # subdirectory as required so Python can correctly load the modules
     set_tests_properties(
-        example_python_${name} PROPERTIES
+        python_${name}_example PROPERTIES
         ENVIRONMENT
             "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}$<${SWIG_IS_MULTI_CONFIG}:/$<CONFIG>>"
     )
