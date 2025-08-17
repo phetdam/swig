@@ -32,7 +32,9 @@ set(
         smartptr
         std_map
         std_vector
-        # TODO: incomplete
+        template
+        varargs
+        variables
 )
 # add all the Python example directories. most will be some simple invocation
 # of swig_add_python_example, but some examples will be more involved
