@@ -15,6 +15,8 @@ include_guard(GLOBAL)
 # for the test driver script, typically runme.py. The working directory of the
 # test is will be the directory in which swig_add_python_example was called.
 #
+# This function correctly tracks SWIG dependencies via -MMD -MF <depfile>.
+#
 # Arguments:
 #   name                        Example/target name
 #   [CXX]                       Enable SWIG C++ processing, e.g. with -c++
@@ -60,15 +62,13 @@ function(swig_add_python_example name)
             -I${SWIG_ROOT}/Lib/python  # for Python-specific
             -I${PROJECT_BINARY_DIR}  # for swigwarn.swg
         )
-        # C++ dependency file rule
         # C++ wrapper rule
         add_custom_command(
             OUTPUT ${swig_output_name}.cxx
             COMMAND swig
                     -python ${ARG_OPTIONS}
                     -c++
-                    -MMD
-                    -MF ${swig_output_name}.cxx.d
+                    -MMD -MF ${swig_output_name}.cxx.d
                     ${swig_includes}
                     -o ${swig_output_name}.cxx
                     # support multi-config generator as necessary
@@ -76,14 +76,11 @@ function(swig_add_python_example name)
                     # enable use of extension module to be same as target name
                     -interface swig_python_example_${name}
                     ${CMAKE_CURRENT_SOURCE_DIR}/${swig_input}
-            # of course, if SWIG is recompiled, we must re-build the example
-            DEPENDS swig ${swig_input}
-            COMMENT "SWIG Python compile for C++ example ${name}"
-            # use depfile for actual dependencies. this is why we run in
-            # CMAKE_CURRENT_BINARY_DIR; relative paths are expected to be
-            # relative to CMAKE_CURRENT_BINARY_DIR
-            # FIXME: CMake doesn't seem to respect this and keeps re-running
+            # need swigwarn_generate dependency to prevent repeated
+            # swigwarn.swg generation if swigwarn.h changes
+            DEPENDS swig swigwarn_generate ${swig_input}
             DEPFILE ${swig_output_name}.cxx.d
+            COMMENT "SWIG Python compile for C++ example ${name}"
             VERBATIM
             COMMAND_EXPAND_LISTS
         )
@@ -92,8 +89,7 @@ function(swig_add_python_example name)
             OUTPUT ${swig_output_name}.c
             COMMAND swig
                     -python ${ARG_OPTIONS}
-                    -MMD
-                    -MF ${swig_output_name}.c.d
+                    -MMD -MF ${swig_output_name}.c.d
                     ${swig_includes}
                     -o ${swig_output_name}.c
                     # support multi-config generator as necessary
@@ -101,10 +97,11 @@ function(swig_add_python_example name)
                     # enable use of extension module to be same as target name
                     -interface swig_python_example_${name}
                     ${CMAKE_CURRENT_SOURCE_DIR}/${swig_input}
-            DEPENDS swig ${swig_input}
-            COMMENT "SWIG Python compile for C example ${name}"
-            # FIXME: CMake doesn't seem to respect this and keeps re-running
+            # need swigwarn_generate dependency to prevent repeated
+            # swigwarn.swg generation if swigwarn.h changes
+            DEPENDS swig swigwarn_generate ${swig_input}
             DEPFILE ${swig_output_name}.c.d
+            COMMENT "SWIG Python compile for C example ${name}"
             VERBATIM
             COMMAND_EXPAND_LISTS
         )
