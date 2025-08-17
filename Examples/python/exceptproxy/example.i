@@ -1,5 +1,5 @@
 /* This is a rather sophisticated example that illustrates exception handling,
-   templates, and proxy classes. 
+   templates, and proxy classes.
 
    (i) The %exception directive is used to attach exception handlers
        to specific methods.
@@ -11,6 +11,13 @@
 */
 
 %module example
+
+%begin %{
+/* ensure MSVC links the non-debug Python runtime */
+#ifdef _MSC_VER
+#define SWIG_PYTHON_INTERPRETER_NO_DEBUG
+#endif  /* _MSC_VER */
+%}
 
 %{
 #include "example.h"
@@ -100,4 +107,3 @@ bool is_python_builtin() { return true; }
 bool is_python_builtin() { return false; }
 #endif
 %}
-

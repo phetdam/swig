@@ -1,6 +1,12 @@
 /* File : example.i */
 %module example
 
+%begin %{
+/* ensure MSVC links the non-debug Python runtime */
+#ifdef _MSC_VER
+#define SWIG_PYTHON_INTERPRETER_NO_DEBUG
+#endif  /* _MSC_VER */
+%}
 
 %inline %{
 // From B. Strousjoup, "The C++ Programming Language, Third Edition", p. 514
@@ -23,7 +29,3 @@ public:
 // Instantiate a few versions
 %template(intSum) Sum<int>;
 %template(doubleSum) Sum<double>;
-
-
-
-
