@@ -7,12 +7,16 @@ include_guard(GLOBAL)
 #
 # This function defines rules for generating C or C++ SWIG wrapper code from
 # the provided .i module that will be generated in the build output directory.
+# In particular, multiple .i modules can be built for a single example with
+# this function, with any extra C/C++ sources compiled as objects and
+# statically linked into each module as necessary.
 #
-# Note: Currently this only works for single-config generators.
+# A CTest test will be registered for the example with PYTHONPATH correctly set
+# for the test driver script, typically runme.py.
 #
 # Arguments:
 #   name                        Example/target name
-#   INTERFACES interfaces...    SWIG .i interface file
+#   INTERFACES interfaces...    SWIG .i interface file(s) to compile as modules
 #   DRIVER driver               Python script run as the test driver
 #   [SOURCES sources...]        Additional C/C++ sources used in module
 #                               compilation. These are compiled into a static
@@ -24,6 +28,7 @@ include_guard(GLOBAL)
 function(swig_add_python_example name)
     cmake_parse_arguments(ARG "CXX" "DRIVER" "INTERFACES;OPTIONS;SOURCES" ${ARGN})
     # DRIVER + INTERFACES required
+    # TODO: if not provided, assume example.i and runme.py
     if(NOT ARG_DRIVER)
         message(FATAL_ERROR "Missing required Python test driver")
     endif()
@@ -33,7 +38,7 @@ function(swig_add_python_example name)
     # add static library for sources
     if(ARG_SOURCES)
         add_library(swig_python_example_${name}_lib STATIC ${ARG_SOURCES})
-        # e.g. ensure -fPIC is used with GCC
+        # e.g. ensure -fPIC is used with GCC. ignored for MSVC
         set_target_properties(
             swig_python_example_${name}_lib PROPERTIES
             POSITION_INDEPENDENT_CODE TRUE
@@ -63,7 +68,8 @@ function(swig_add_python_example name)
                     -MF ${swig_output_name}.cxx.d
                     ${swig_includes}
                     -o ${swig_output_name}.cxx
-                    -outdir .
+                    # support multi-config generator as necessary
+                    -outdir $<IF:${SWIG_IS_MULTI_CONFIG},$<CONFIG>,.>
                     # enable use of extension module to be same as target name
                     -interface swig_python_example_${name}
                     ${CMAKE_CURRENT_SOURCE_DIR}/${swig_input}
@@ -73,6 +79,7 @@ function(swig_add_python_example name)
             # use depfile for actual dependencies. this is why we run in
             # CMAKE_CURRENT_BINARY_DIR; relative paths are expected to be
             # relative to CMAKE_CURRENT_BINARY_DIR
+            # FIXME: CMake doesn't seem to respect this and keeps re-running
             DEPFILE ${swig_output_name}.cxx.d
             VERBATIM
             COMMAND_EXPAND_LISTS
@@ -86,12 +93,14 @@ function(swig_add_python_example name)
                     -MF ${swig_output_name}.c.d
                     ${swig_includes}
                     -o ${swig_output_name}.c
+                    # support multi-config generator as necessary
+                    -outdir $<IF:${SWIG_IS_MULTI_CONFIG},$<CONFIG>,.>
                     # enable use of extension module to be same as target name
                     -interface swig_python_example_${name}
-                    -outdir .
                     ${CMAKE_CURRENT_SOURCE_DIR}/${swig_input}
             DEPENDS swig ${swig_input}
             COMMENT "SWIG Python compile for C example ${name}"
+            # FIXME: CMake doesn't seem to respect this and keeps re-running
             DEPFILE ${swig_output_name}.c.d
             VERBATIM
             COMMAND_EXPAND_LISTS
@@ -106,13 +115,12 @@ function(swig_add_python_example name)
             swig_python_example_${name} MODULE
             ${CMAKE_CURRENT_BINARY_DIR}/${swig_output}
         )
-        # on Windows, use release C runtime to avoid Python headers from
-        # auto-linking the Python debug runtime
+        # on Windows, use standard release C runtime even in debug builds
         set_target_properties(
             swig_python_example_${name} PROPERTIES
             MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         )
-        # pick up source directory as include path
+        # pick up curernt source directory as include path
         target_include_directories(
             swig_python_example_${name} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
@@ -125,14 +133,19 @@ function(swig_add_python_example name)
             )
         endif()
     endforeach()
-    # register test. must run in same directory as the specified driver script
+    # register test. must run in same directory as the extension + wrapper
+    # modules which for multi-config generators is in per-config directory
     add_test(
         NAME example_python_${name}
         COMMAND ${Python_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_DRIVER}
+        WORKING_DIRECTORY
+            ${CMAKE_CURRENT_BINARY_DIR}$<${SWIG_IS_MULTI_CONFIG}:/$<CONFIG>>
     )
-    # ensure PYTHONPATH includes CMAKE_CURRENT_BINARY_DIR
+    # ensure PYTHONPATH includes CMAKE_CURRENT_BINARY_DIR with per-config
+    # subdirectory as required so Python can correctly load the modules
     set_tests_properties(
         example_python_${name} PROPERTIES
-        ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}"
+        ENVIRONMENT
+            "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}$<${SWIG_IS_MULTI_CONFIG}:/$<CONFIG>>"
     )
 endfunction()
