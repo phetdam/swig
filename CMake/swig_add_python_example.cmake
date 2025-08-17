@@ -130,7 +130,9 @@ function(swig_add_python_example name)
             swig_python_${name}_${swig_input_name} MODULE
             ${CMAKE_CURRENT_BINARY_DIR}/${swig_output}
         )
-        # on Windows, use standard release C runtime even in debug builds
+        # on Windows, use standard release C runtime even in debug builds. this
+        # removes the need for SWIG_PYTHON_INTERPRETER_NO_DEBUG definition that
+        # is needed if you wish to use a debug C runtime
         set_target_properties(
             swig_python_${name}_${swig_input_name} PROPERTIES
             MSVC_RUNTIME_LIBRARY MultiThreadedDLL
