@@ -47,11 +47,11 @@ function(swig_add_python_example name)
     endif()
     # add static library for sources
     if(ARG_SOURCES)
-        add_library(swig_python_example_${name}_lib STATIC ${ARG_SOURCES})
+        add_library(swig_python_${name}_example_lib STATIC ${ARG_SOURCES})
         # ensure -fPIC is used with GCC/Clang (ignored for MSVC) and ensure
         # MSVC uses the non-debug C runtime (ignored for non-MSVC)
         set_target_properties(
-            swig_python_example_${name}_lib PROPERTIES
+            swig_python_${name}_example_lib PROPERTIES
             POSITION_INDEPENDENT_CODE TRUE
             MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         )
@@ -87,7 +87,7 @@ function(swig_add_python_example name)
             # swigwarn.swg generation if swigwarn.h changes
             DEPENDS swig swigwarn_generate ${swig_input}
             DEPFILE ${swig_output_name}.cxx.d
-            COMMENT "SWIG Python compile for C++ example ${name}"
+            COMMENT "SWIG Python C++ compile for ${name} ${swig_input_name}.i"
             VERBATIM
             COMMAND_EXPAND_LISTS
         )
@@ -108,7 +108,7 @@ function(swig_add_python_example name)
             # swigwarn.swg generation if swigwarn.h changes
             DEPENDS swig swigwarn_generate ${swig_input}
             DEPFILE ${swig_output_name}.c.d
-            COMMENT "SWIG Python compile for C example ${name}"
+            COMMENT "SWIG Python C compile for ${name} ${swig_input_name}.i"
             VERBATIM
             COMMAND_EXPAND_LISTS
         )
@@ -119,24 +119,24 @@ function(swig_add_python_example name)
         endif()
         # build Python module
         Python_add_library(
-            swig_python_example_${name} MODULE
+            swig_python_${name}_${swig_input_name} MODULE
             ${CMAKE_CURRENT_BINARY_DIR}/${swig_output}
         )
         # on Windows, use standard release C runtime even in debug builds
         set_target_properties(
-            swig_python_example_${name} PROPERTIES
+            swig_python_${name}_${swig_input_name} PROPERTIES
             MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         )
         # pick up current source directory as include path
         target_include_directories(
-            swig_python_example_${name} PRIVATE
+            swig_python_${name}_${swig_input_name} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
         )
         # link against helper library if it is defined
-        if(TARGET swig_python_example_${name}_lib)
+        if(TARGET swig_python_${name}_example_lib)
             target_link_libraries(
-                swig_python_example_${name} PRIVATE
-                swig_python_example_${name}_lib
+                swig_python_${name}_${swig_input_name} PRIVATE
+                swig_python_${name}_example_lib
             )
         endif()
     endforeach()
