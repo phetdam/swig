@@ -1,6 +1,13 @@
 /* File : example.i */
 %module example
 
+%begin %{
+/* ensure MSVC links the non-debug Python runtime */
+#ifdef _MSC_VER
+#define SWIG_PYTHON_INTERPRETER_NO_DEBUG
+#endif  /* _MSC_VER */
+%}
+
 %{
 extern void add(int *, int *, int *);
 extern void sub(int *, int *, int *);
@@ -24,7 +31,3 @@ extern void sub(int *INPUT, int *INPUT, int *OUTPUT);
 
 %apply int *OUTPUT { int *r };
 extern int divide(int n, int d, int *r);
-
-
-
-

@@ -1,11 +1,18 @@
 /* File : example.i */
 %module example
 
+%begin %{
+/* ensure MSVC links the non-debug Python runtime */
+#ifdef _MSC_VER
+#define SWIG_PYTHON_INTERPRETER_NO_DEBUG
+#endif  /* _MSC_VER */
+%}
+
 %{
 #include <stdarg.h>
 %}
 
-/* This example illustrates SWIG's handling of varargs functions.  
+/* This example illustrates SWIG's handling of varargs functions.
    By default, variable length arguments are simply ignored.  This
    is generally appropriate for wrapping I/O functions like printf.
    You can simply format a string in the scripting language, and
@@ -66,4 +73,3 @@ void printv(char *s, ...) {
     fputc('\n',stdout);
 }
 %}
-

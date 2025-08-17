@@ -1,5 +1,13 @@
 /* File : example.i */
 %module example
+
+%begin %{
+/* ensure MSVC links the non-debug Python runtime */
+#ifdef _MSC_VER
+#define SWIG_PYTHON_INTERPRETER_NO_DEBUG
+#endif  /* _MSC_VER */
+%}
+
 %{
 #include "example.h"
 %}
@@ -48,4 +56,3 @@ extern Point *new_Point(int x, int y);
 extern char  *Point_print(Point *p);
 extern void  pt_print();
 %}
-
