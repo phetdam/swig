@@ -7,6 +7,29 @@ set(
         class
         constants
         contract
+        docstrings
+        enum
+        exception
+        exceptproxy
+        extend
+        # FIXME: requires rethinking swig_add_python_example or a bespoke rule
+        # external_runtime
+        funcptr
+        funcptr2
+        functor
+        import
+        # TODO: this requires a bespoke approach
+        # import_packages
+        import_template
+        libffi
+        multimap
+        operator
+        # TODO: this requires a bespoke approach
+        # performance
+        pointer
+        reference
+        simple
+        # TODO: incomplete
 )
 # add all the Python example directories. most will be some simple invocation
 # of swig_add_python_example, but some examples will be more involved
