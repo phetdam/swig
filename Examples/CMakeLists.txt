@@ -53,6 +53,15 @@ else()
   set(SWIG_HAS_PYTHON3 FALSE)
 endif()
 
+# find libffi
+message(CHECK_START "Looking for FFI")
+find_package(FFI)
+if(FFI_FOUND)
+  message(CHECK_PASS "found ${FFI_VERSION}")
+else()
+  message(CHECK_FAIL "not found")
+endif()
+
 # add examples
 if(LUA_FOUND)
   # add_subdirectory(lua)
