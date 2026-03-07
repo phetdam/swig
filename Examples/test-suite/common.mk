@@ -211,7 +211,7 @@ CPP_TEST_CASES += \
 	director_finalizer \
 	director_frob \
 	director_ignore \
-	director_keywords \
+	director_minimal \
 	director_multiple_inheritance \
 	director_namespace_clash \
 	director_nested \
@@ -363,6 +363,7 @@ CPP_TEST_CASES += \
 	newobject3 \
 	nspace \
 	nspace_extend \
+	nspace_interface \
 	nspacemove \
 	nspacemove_nested \
 	nspacemove_stl \
@@ -735,6 +736,7 @@ DOXYGEN_TEST_CASES += \
 	doxygen_basic_translate_style3 \
 	doxygen_code_blocks \
 	doxygen_ignore \
+	doxygen_interface \
 	doxygen_misc_constructs \
 	doxygen_nested_class \
 	doxygen_overloads \
@@ -868,6 +870,7 @@ C_TEST_CASES += \
 # Multi-module C++ test cases . (Can be run individually using make testcase.multicpptest)
 MULTI_CPP_TEST_CASES += \
 	clientdata_prop \
+	import_share \
 	import_stl \
 	imports \
 	mod \

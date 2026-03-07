@@ -95,7 +95,7 @@ run_testcase = \
 	  export CGO_CFLAGS; \
 	  CGO_CXXFLAGS="$(CXXFLAGS)"; \
 	  export CGO_CXXFLAGS; \
-	  CGO_LDFLAGS="$(LDFLAGS) -lm"; \
+	  CGO_LDFLAGS="$(LDFLAGS)"; \
 	  export CGO_LDFLAGS; \
 	  mkdir gopath/src/swigtests 2>/dev/null || true; \
 	  mkdir gopath/src/swigtests/$* 2>/dev/null || true; \
@@ -116,7 +116,7 @@ run_testcase_cpp = \
 	  export CGO_CFLAGS; \
 	  CGO_CXXFLAGS="$(CXXFLAGS)"; \
 	  export CGO_CXXFLAGS; \
-	  CGO_LDFLAGS="$(LDFLAGS) -lm"; \
+	  CGO_LDFLAGS="$(LDFLAGS)"; \
 	  export CGO_LDFLAGS; \
 	  mkdir gopath/src/swigtests 2>/dev/null || true; \
 	  mkdir gopath/src/swigtests/$* 2>/dev/null || true; \
@@ -140,7 +140,7 @@ run_multi_testcase = \
 	  export CGO_CFLAGS; \
 	  CGO_CXXFLAGS="$(CXXFLAGS)"; \
 	  export CGO_CXXFLAGS; \
-	  CGO_LDFLAGS="$(LDFLAGS) -lm"; \
+	  CGO_LDFLAGS="$(LDFLAGS)"; \
 	  export CGO_LDFLAGS; \
 	  (cd gopath/$*/src/$* && \
 	    $(COMPILETOOL) $(GO) build `if $(GOGCC); then echo -compiler=gccgo; fi` -o ../../../../$*_runme) && \
@@ -154,6 +154,9 @@ clean:
 	$(MAKE) -f $(top_builddir)/$(EXAMPLES)/Makefile SRCDIR='$(SRCDIR)' go_clean
 	rm -f clientdata_prop_a.go clientdata_prop_a.gox
 	rm -f clientdata_prop_b.go clientdata_prop_b.gox
+	rm -f import_share_a.go import_share_a.gox
+	rm -f import_share_b.go import_share_b.gox
+	rm -f import_share_c.go import_share_c.gox
 	rm -f import_stl_a.go import_stl_a.gox
 	rm -f import_stl_b.go import_stl_b.gox
 	rm -f imports_a.go imports_a.gox imports_b.go imports_b.gox
