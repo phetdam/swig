@@ -1578,7 +1578,7 @@ public:
 
     is_void_return = (Cmp(c_return_type, "void") == 0);
     if (!is_void_return)
-      Wrapper_add_localv(f, "jresult", c_return_type, "jresult", NIL);
+      Wrapper_add_localv(f, "jresult", c_return_type, "jresult = $null", NIL);
 
     Printv(f->def, " SWIGEXPORT ", c_return_type, " ", wname, "(", NIL);
 
@@ -1718,7 +1718,17 @@ public:
     // Now write code to make the function call
     if (!native_function_flag) {
 
-      Swig_director_emit_dynamic_cast(n, f);
+      if (Swig_director_emit_dynamic_cast(n, f)) {
+        /* Add protection */
+        Setattr(n, "d:canthrow", "1");
+        Append(f->code, "if (!darg) {\n");
+        Append(f->code, "  SWIG_DSetPendingException(SWIG_DNullReferenceException, \"'self' is not a director\");\n");
+        if (is_void_return)
+          Append(f->code, "  return;\n");
+        else
+          Append(f->code, "  return jresult;\n");
+        Append(f->code, "}\n");
+      }
       String *actioncode = emit_action(n);
 
       /* Return value if necessary  */
@@ -1789,10 +1799,13 @@ public:
       Setattr(n, "d:canthrow", "1");
     }
 
-    if (!null_attribute)
+    if (!null_attribute) {
       Replaceall(f->code, "$null", "0");
-    else
+      Replaceall(f->locals, "$null", "0");
+    } else {
       Replaceall(f->code, "$null", null_attribute);
+      Replaceall(f->locals, "$null", null_attribute);
+    }
 
     /* Dump the function out */
     if (!native_function_flag) {

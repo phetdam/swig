@@ -32,6 +32,7 @@
 <li><a href="#Lua_structures">Structures</a>
 <li><a href="#Lua_nn14">C++ classes</a>
 <li><a href="#Lua_nn15">C++ inheritance</a>
+<li><a href="#Lua_nested_classes">C++ nested classes</a>
 <li><a href="#Lua_nn16">Pointers, references, values, and arrays</a>
 <li><a href="#Lua_nn17">C++ overloaded functions</a>
 <li><a href="#Lua_nn18">C++ operators</a>
@@ -74,6 +75,13 @@
 <ul>
 <li><a href="#Lua_directors_enabling">Enabling directors</a>
 <li><a href="#Lua_directors_usage">Using directors in Lua</a>
+<ul>
+<li><a href="#Lua_directors_helpers">Helper Functions</a>
+<li><a href="#Lua_directors_basic_example">Basic Example</a>
+<li><a href="#Lua_directors_override_multiple_methods">Overriding multiple methods</a>
+<li><a href="#Lua_directors_derived_class">Creating derived class patterns</a>
+<li><a href="#Lua_directors_current_override">Getting the current override</a>
+</ul>
 <li><a href="#Lua_directors_exceptions">Exception handling in directors</a>
 <li><a href="#Lua_directors_caveats">Director caveats and limitations</a>
 </ul>
@@ -94,7 +102,8 @@ eLua stands for Embedded Lua (can be thought of as a flavor of Lua) and offers t
 
 
 <p>
-The current SWIG implementation is designed to work with Lua 5.0.x, 5.1.x and 5.2.x. It should work with later versions of Lua, but certainly not with Lua 4.0 due to substantial API changes. It is possible to either static link or dynamic link a Lua module into the interpreter (normally Lua static links its libraries, as dynamic linking is not available on all platforms). SWIG also has support for eLua starting from eLua 0.8. Due to substantial changes between SWIG 2.x and SWIG 3.0 and unavailability of testing platform, eLua status was downgraded to 'experimental'.
+The current SWIG implementation is designed to work with Lua version 5.2 and above. It is possible to either static link or dynamic link a Lua module into the interpreter (normally Lua static links its libraries, as dynamic linking is not available on all platforms).
+SWIG has experimental support for eLua from version 0.8 onwards.
 </p>
 
 <H2><a name="Lua_nn3">29.2 Running SWIG</a></H2>
@@ -175,16 +184,6 @@ swig -lua -help
 <td>-nomoduleglobal</td>
 <td>Do not register the module name as a global variable but return the module table from calls to require.</td>
 </tr>
-
-<tr>
-  <td>-no-old-metatable-bindings</td>
-  <td>Disable backward compatibility: old-style binding names generations and a few other things. Explanations are included in appropriate later sections.
-      This option is considered deprecated and will be removed in the near future.</td>
-</tr>
-<tr>
-  <td>-squash-bases</td>
-  <td>Squashes symbols from all inheritance tree of a given class into itself. Emulates pre-SWIG3.0 inheritance. Insignificantly speeds things up, but increases memory consumption.</td>
-</tr>
 </table>
 
 <H3><a name="Lua_nn4">29.2.2 Compiling and Linking and Interpreter</a></H3>
@@ -209,7 +208,7 @@ int main(int argc, char* argv[])
   printf("%s: &lt;filename.lua&gt;\n", argv[0]);
   return 0;
  }
- L=lua_open();
+ L=luaL_newstate();
  luaopen_base(L);       // load basic libs (eg. print)
  luaopen_example(L);    // load the wrapped module
  if (luaL_loadfile(L, argv[1])==0) // load and run the file
@@ -271,13 +270,13 @@ $ gcc -fPIC -c example.c -o example.o
 $ gcc -shared -I/usr/include/lua -L/usr/lib/lua example_wrap.o example.o -o example.so
 </pre></div>
 <p>
-The wrappers produced by SWIG can be compiled and linked with Lua 5.1.x and later. The loading is extremely simple.
+The wrappers produced by SWIG can be compiled and linked with Lua 5.2 and later. The loading is extremely simple.
 </p>
 <div class="targetlang"><pre>
 require("example")
 </pre></div>
 <p>
-For those using Lua 5.0.x, you will also need an interpreter with the loadlib function (such as the default interpreter compiled with Lua). In order to dynamically load a module you must call the loadlib function with two parameters: the filename of the shared library, and the function exported by SWIG. Calling loadlib should return the function, which you then call to initialise the module
+In order to dynamically load a module you must call the loadlib function with two parameters: the filename of the shared library, and the function exported by SWIG. Calling loadlib should return the function, which you then call to initialise the module
 </p>
 <div class="targetlang"><pre>
 my_init=loadlib("example.so", "luaopen_example") -- for Unix/Linux
@@ -301,10 +300,6 @@ a, b, c=package.loadlib("example.so", "luaopen_example") -- for Unix/Linux
 --a, b, c=package.loadlib("example.dll", "luaopen_example") -- for Windows
 print(a, b, c)
 </pre></div>
-<p>
-Note: for Lua 5.0:<br>
-The loadlib() function is in the global namespace, not in a package. So it's just loadlib().
-</p>
 <p>
 if 'a' is a function, this is all working fine, all you need to do is call it
 </p>
@@ -569,7 +564,6 @@ the following code was the only way to access these constants/enums when wrappin
 </pre></div>
 <p>
 The old-style bindings are still generated in addition to the new ones.
-If the <tt>-no-old-metatable-bindings</tt> option is used, then these old-style bindings are not generated.
 </p>
 <p>
 It is worth mentioning, that <tt>example.Test.TEST1</tt> and <tt>example.Test_TEST1</tt> are different entities and changing one does not change the other. 
@@ -790,7 +784,6 @@ It is not (currently) possible to access static members of an instance:
 
 <p>
 Both style names are generated by default now. 
-However, if the <tt>-no-old-metatable-bindings</tt> option is used, then the backward compatible names are not generated in addition to ordinary ones.
 </p>
 
 <H3><a name="Lua_nn15">29.3.8 C++ inheritance</a></H3>
@@ -818,7 +811,64 @@ then the function <tt>spam()</tt> accepts a Foo pointer or a pointer to any clas
 <p>
 It is safe to use multiple inheritance with SWIG.
 </p>
-<H3><a name="Lua_nn16">29.3.9 Pointers, references, values, and arrays</a></H3>
+<H3><a name="Lua_nested_classes">29.3.9 C++ nested classes</a></H3>
+
+
+<p>
+SWIG fully supports C++ nested classes. A nested class is a class defined within the scope of another class. For example:
+</p>
+<div class="code"><pre>
+class Outer {
+public:
+  class Inner {
+  public:
+    int value;
+    Inner() : value(0) {}
+    void setValue(int v) { value = v; }
+  };
+  
+  Inner createInner() { return Inner(); }
+};
+</pre></div>
+<p>
+In Lua, nested classes are accessed through their parent class using dot notation:
+</p>
+<div class="targetlang"><pre>
+&gt; -- Create an instance of the nested class directly
+&gt; inner = example.Outer.Inner()
+&gt; inner:setValue(42)
+&gt; print(inner.value)
+42
+&gt;
+&gt; -- Or through a factory method of the outer class
+&gt; outer = example.Outer()
+&gt; inner2 = outer:createInner()
+&gt; print(inner2.value)
+0
+</pre></div>
+<p>
+Nested classes can have multiple levels of nesting, and all levels are accessible using the same dot notation:
+</p>
+<div class="code"><pre>
+class Level1 {
+public:
+  class Level2 {
+  public:
+    class Level3 {
+    public:
+      static int deepValue;
+    };
+  };
+};
+</pre></div>
+<div class="targetlang"><pre>
+&gt; print(example.Level1.Level2.Level3.deepValue)
+</pre></div>
+<p>
+Static members and methods of nested classes are also fully supported and accessible through the nested class path.
+</p>
+
+<H3><a name="Lua_nn16">29.3.10 Pointers, references, values, and arrays</a></H3>
 
 
 <p>
@@ -849,7 +899,7 @@ Foo  spam7();
 <p>
 then all three functions will return a pointer to some Foo object. Since the third function (spam7) returns a value, newly allocated memory is used to hold the result and a pointer is returned (Lua will release this memory when the return value is garbage collected). The other two are pointers which are assumed to be managed by the C code and so will not be garbage collected.
 </p>
-<H3><a name="Lua_nn17">29.3.10 C++ overloaded functions</a></H3>
+<H3><a name="Lua_nn17">29.3.11 C++ overloaded functions</a></H3>
 
 
 <p>
@@ -935,7 +985,7 @@ Please refer to the "SWIG and C++" chapter for more information about overloadin
 <p>
 Dealing with the Lua coercion mechanism, the priority is roughly (integers, floats, strings, userdata). But it is better to rename the functions rather than rely upon the ordering.
 </p>
-<H3><a name="Lua_nn18">29.3.11 C++ operators</a></H3>
+<H3><a name="Lua_nn18">29.3.12 C++ operators</a></H3>
 
 
 <p>
@@ -1013,8 +1063,12 @@ The current list of operators which can be overloaded (and the alternative funct
 Note: in Lua, only the equals, less than, and less than equals operators are defined. The other operators (!=, &gt;, &gt;=) are achieved by using a logical not applied to the results of other operators.
 </p>
 <p>
-The following operators cannot be overloaded (mainly because they are not supported in Lua)<ul>
-<li>++ and --<li>+=, -=, *= etc<li>% operator (you have to use math.mod)<li>assignment operator<li>all bitwise/logical operations</ul>
+Note: Lua uses <tt>~=</tt> for C++ not equals operator (!=).
+</p>
+<p>
+The following operators cannot be overloaded (mainly because they are not supported in Lua as operators)<ul>
+<li>++ and --<li>+=, -=, *= etc<li>% operator (you may use <tt>math.modf (x)</tt>)<li>assignment operator
+<li>bitwise operations<li>logical operations (Lua uses <tt>and</tt>, <tt>or</tt>, and <tt>not</tt>)</ul>
 <p>
 SWIG also accepts the <tt>__str__()</tt> member function which converts an object to a string. This function should return a const char*, preferably to static memory. This will be used for the <tt>print()</tt> and <tt>tostring()</tt> functions in Lua. Assuming the complex class has a function
 </p>
@@ -1069,7 +1123,7 @@ operators and pseudo-operators):</p>
 </ul>
 <p>No other lua metafunction is inherited. For example, __gc is not inherited and must be redefined in every class. <tt>__tostring</tt> is subject to a special handling. If absent in class and in class bases, a default one will be provided by SWIG.
 </p>
-<H3><a name="Lua_nn19">29.3.12 Class extension with %extend</a></H3>
+<H3><a name="Lua_nn19">29.3.13 Class extension with %extend</a></H3>
 
 
 <p>
@@ -1126,7 +1180,7 @@ true
 Extend works with both C and C++ code, on classes and structs. It does not modify the underlying object in any way---the extensions only show up in the Lua interface. The only item to take note of is the code has to use the '$self' instead of 'this', and that you cannot access protected/private members of the code (as you are not officially part of the class).
 </p>
 
-<H3><a name="Lua_nn20">29.3.13 Using %newobject to release memory</a></H3>
+<H3><a name="Lua_nn20">29.3.14 Using %newobject to release memory</a></H3>
 
 
 <p> If you have a function that allocates memory like this,</p>
@@ -1150,7 +1204,7 @@ char *foo();
 </div>
 <p> This will release the allocated memory.</p>
 
-<H3><a name="Lua_nn21">29.3.14 C++ templates</a></H3>
+<H3><a name="Lua_nn21">29.3.15 C++ templates</a></H3>
 
 
 <p>
@@ -1185,7 +1239,7 @@ In Lua:
 <p>
 Obviously, there is more to template wrapping than shown in this example. More details can be found in the SWIG and C++ chapter. Some more complicated examples will appear later.
 </p>
-<H3><a name="Lua_nn22">29.3.15 C++ Smart Pointers</a></H3>
+<H3><a name="Lua_nn22">29.3.16 C++ Smart Pointers</a></H3>
 
 
 <p>
@@ -1237,7 +1291,7 @@ If you ever need to access the underlying pointer returned by <tt>operator-&gt;(
 &gt; f = p:__deref__()     -- Returns underlying Foo *
 </pre></div>
 
-<H3><a name="Lua_nn23">29.3.16 C++ Exceptions</a></H3>
+<H3><a name="Lua_nn23">29.3.17 C++ Exceptions</a></H3>
 
 
 <p>
@@ -1380,7 +1434,7 @@ and the "<a href="Customization.html#Customization_exception">Exception handling
 add exception specification to functions or globally (respectively).
 </p>
 
-<H3><a name="Lua_namespaces">29.3.17 Namespaces </a></H3>
+<H3><a name="Lua_namespaces">29.3.18 Namespaces </a></H3>
 
 
 <p>
@@ -1463,16 +1517,13 @@ The Lua code uses the completely modified hierarchies:
 19.0
 </pre></div>
 
-<H4><a name="Lua_nn27">29.3.17.1 Compatibility Note </a></H4>
+<H4><a name="Lua_nn27">29.3.18.1 Compatibility Note </a></H4>
 
 
 <p>
 The nspace feature was first supported by the Lua module in SWIG-3.0.0
 </p>
 
-<p>
-If SWIG is running in a backwards compatible way, i.e. without the <tt>-no-old-metatable-bindings</tt> option, then additional old-style names are generated (notice the underscore):
-</p>
 <div class="targetlang"><pre>
 &gt; print(example.MyWorld.Nested.Dweller_MALE)
 0
@@ -1484,11 +1535,11 @@ If SWIG is running in a backwards compatible way, i.e. without the <tt>-no-old-m
 The ability to move symbols into different namespaces via <tt>%nspacemove</tt> was introduced in SWIG-4.3.0.
 </p>
 
-<H4><a name="Lua_nn29">29.3.17.2 Names </a></H4>
+<H4><a name="Lua_nn29">29.3.18.2 Names </a></H4>
 
 
-<p> If SWIG is launched without <tt>-no-old-metatable-bindings</tt> option, then it enters backward-compatible mode. While in this mode, it tries
-to generate additional names for static functions, class static constants and class enums.
+<p>
+SWIG tries to generate additional names for static functions, class static constants and class enums.
 Those names are in a form <tt>$classname_$symbolname</tt> and are added to the scope surrounding the class.
 If %nspace is enabled, then class namespace is taken as scope. If there is no namespace, or %nspace is disabled,
 then module is considered a class namespace.</p>
@@ -1529,7 +1580,7 @@ surrounding scope without any prefixing. Pretending that Test2 is a struct, not 
 &gt;
 </pre></div>
 
-<H4><a name="Lua_nn30">29.3.17.3 Inheritance </a></H4>
+<H4><a name="Lua_nn30">29.3.18.3 Inheritance </a></H4>
 
 
 <p> The internal organization of inheritance has changed. 
@@ -1564,9 +1615,7 @@ function
 nil
 &gt;
 </pre></div>
-<p> This behaviour was changed. Now unless -squash-bases option is provided, Derived stores a list of its bases and if some symbol is not found in its own service tables
-then its bases are searched for it. Option -squash-bases will effectively return old behaviour.
-</p>
+<p> This behaviour was changed.</p>
 
 <div class="targetlang"><pre>
 &gt; print(der.new_func) -- Now it works
@@ -1973,7 +2022,7 @@ That way when you call '<tt>a=example.Foo</tt>', the interpreter looks at the ta
 As mentioned earlier, classes and structures, are all held as pointer, using the Lua 'userdata' structure. This structure is actually a pointer to a C structure 'swig_lua_userdata', which contains the pointer to the data, a pointer to the swig_type_info (an internal SWIG struct) and a flag which marks if the object is to be disposed of when the interpreter no longer needs it. The actual accessing of the object is done via the metatable attached to this userdata.
 </p>
 <p>
-The metatable is a Lua 5.0 feature (which is also why SWIG cannot wrap Lua 4.0). It's a table which holds a list of functions, operators and attributes. This is what gives the userdata the feeling that it is a real object and not just a hunk of memory.
+The metatable is a table which holds a list of functions, operators and attributes. This is what gives the userdata the feeling that it is a real object and not just a hunk of memory.
 </p>
 <p>
 Given a class
@@ -2061,6 +2110,8 @@ It is also currently not possible to change the ownership flag on the data (unli
 
 
 <H2><a name="Lua_directors">29.8 Cross language polymorphism using directors</a></H2>
+
+
 <p>
 Unlike languages such as Python or Java, Lua does not have built-in class inheritance or polymorphism.
 Lua uses prototype-based object orientation, where objects can be extended dynamically but there is no
@@ -2078,6 +2129,8 @@ SWIG provides helper functions (<tt>swig_override</tt>, <tt>swig_derive</tt>, <t
 that make it easy to set up these overrides without needing to understand the underlying implementation details.
 </p>
 <H3><a name="Lua_directors_enabling">29.8.1 Enabling directors</a></H3>
+
+
 <p>
 The director feature is disabled by default. To use directors you must make two changes to the interface file.
 First, add the "directors" option to the %module directive:
@@ -2108,11 +2161,15 @@ You can use %feature("nodirector") to disable directors for specific classes or 
 </pre>
 </div>
 <H3><a name="Lua_directors_usage">29.8.2 Using directors in Lua</a></H3>
+
+
 <p>
 When directors are enabled, SWIG provides helper functions to override virtual methods in Lua.
 These functions make it easy to extend C++ classes from Lua without exposing internal implementation details.
 </p>
-<H4>29.8.2.1 Helper Functions</H4>
+<H4><a name="Lua_directors_helpers">29.8.2.1 Helper Functions</a></H4>
+
+
 <p>
 SWIG provides the following helper functions when directors are enabled:
 </p>
@@ -2121,7 +2178,9 @@ SWIG provides the following helper functions when directors are enabled:
 <li><b>swig_get_override(obj, methodName)</b> - Get the current override function for a method</li>
 <li><b>swig_derive(obj, overrides)</b> - Override multiple virtual methods at once</li>
 </ul>
-<H4>29.8.2.2 Basic Example</H4>
+<H4><a name="Lua_directors_basic_example">29.8.2.2 Basic Example</a></H4>
+
+
 <p>
 Given a C++ class:
 </p>
@@ -2165,7 +2224,9 @@ end)
 obj:printMessage()  -- Prints: "Hello from Lua!"
 </pre>
 </div>
-<H4>29.8.2.3 Overriding multiple methods</H4>
+<H4><a name="Lua_directors_override_multiple_methods">29.8.2.3 Overriding multiple methods</a></H4>
+
+
 <p>
 Use <tt>swig_derive</tt> to override multiple methods at once:
 </p>
@@ -2182,7 +2243,9 @@ end
 })
 </pre>
 </div>
-<H4>29.8.2.4 Creating derived class patterns</H4>
+<H4><a name="Lua_directors_derived_class">29.8.2.4 Creating derived class patterns</a></H4>
+
+
 <p>
 You can create a pattern similar to class inheritance in Lua:
 </p>
@@ -2203,7 +2266,9 @@ local derived = MyDerivedClass()
 derived:printMessage()  -- Calls the Lua override
 </pre>
 </div>
-<H4>29.8.2.5 Getting the current override</H4>
+<H4><a name="Lua_directors_current_override">29.8.2.5 Getting the current override</a></H4>
+
+
 <p>
 Use <tt>swig_get_override</tt> to retrieve the current override function for a method.
 If no override has been set for the specified method, it returns <tt>nil</tt>.
@@ -2228,6 +2293,8 @@ assert(noFunc == nil)
 </pre>
 </div>
 <H3><a name="Lua_directors_exceptions">29.8.3 Exception handling in directors</a></H3>
+
+
 <p>
 When a Lua function overriding a virtual method throws an error (using Lua's <tt>error()</tt> function),
 the error will be caught and can be handled appropriately. The error message from Lua is preserved
@@ -2243,6 +2310,8 @@ end)
 </pre>
 </div>
 <H3><a name="Lua_directors_caveats">29.8.4 Director caveats and limitations</a></H3>
+
+
 <ul>
 <li>
 <b>Per-instance overrides:</b> Overrides are set per-instance, not per-class. Each object can have

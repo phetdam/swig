@@ -47,11 +47,15 @@ def get_cflags(language, std, compiler):
 def get_cxxflags(language, std, compiler):
     if std == None or len(std) == 0:
         std = "c++98"
-    cxx_common = "-fdiagnostics-show-option -std=" + std + " -Wno-long-long -Wreturn-type -Wmissing-field-initializers"
+    cxx_common = "-fdiagnostics-show-option -std=" + std + " -Wno-long-long -Wreturn-type -Wmissing-field-initializers -Wdelete-non-virtual-dtor"
     if platform.system() != 'Darwin':
         cxx_common += " -Wunused-variable"
     else:
         cxx_common += " -Wno-deprecated-declarations"
+
+    # not applicable for these languages as headers emit the warning
+    if language not in ["octave", "javascript"]:
+        cxx_common += " -Wextra-semi"
 
     cxxflags = {
              "c":"-Werror " + cxx_common,

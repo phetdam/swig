@@ -97,7 +97,13 @@ static int nogil = 0;
 /* flags for the make_autodoc function */
 namespace {
 enum autodoc_t { AUTODOC_CLASS, AUTODOC_CTOR, AUTODOC_DTOR, AUTODOC_STATICFUNC, AUTODOC_FUNC, AUTODOC_METHOD, AUTODOC_CONST, AUTODOC_VAR };
-}
+
+enum type_annotation_t {
+  TYPE_ANNOTATION_NONE = 0,
+  TYPE_ANNOTATION_C,
+  TYPE_ANNOTATION_TYPING,
+};
+}  // namespace
 
 static const char *usage1 = "\
 Python Options (available with -python)\n\
@@ -222,6 +228,15 @@ static String *getClosure(String *functype, String *wrapper, int funpack = 0) {
     }
   }
   return NULL;
+}
+
+static type_annotation_t getTypeAnnotationMode(Node *n) {
+  String *annotation_type = Getattr(n, "feature:python:annotations");
+  if (Equal(annotation_type, "c"))
+    return TYPE_ANNOTATION_C;
+  if (Equal(annotation_type, "typing"))
+    return TYPE_ANNOTATION_TYPING;
+  return TYPE_ANNOTATION_NONE;
 }
 
 class PYTHON : public Language {
@@ -903,6 +918,8 @@ public:
         Printv(f_shadow_py, "\n", f_shadow_begin, "\n", NIL);
 
       Printv(f_shadow_py, "\nfrom sys import version_info as _swig_python_version_info\n", NULL);
+      Printv(f_shadow_py, "if _swig_python_version_info >= (3, 5):\n", NULL);
+      Printv(f_shadow_py, "    import typing\n", NULL);
 
       if (Len(f_shadow_after_begin) > 0)
         Printv(f_shadow_py, f_shadow_after_begin, "\n", NIL);
@@ -1761,7 +1778,7 @@ public:
    *    func_annotation: Function annotation support
    * ------------------------------------------------------------ */
 
-  String *make_autodocParmList(Node *n, bool showTypes, int arg_num = 1, bool calling = false, bool func_annotation = false) {
+  String *make_autodocParmList(Node *n, bool showTypes, int arg_num = 1, bool calling = false, type_annotation_t func_annotation = TYPE_ANNOTATION_NONE) {
 
     String *doc = NewString("");
     String *pdocs = 0;
@@ -1770,11 +1787,12 @@ public:
     Parm *pnext;
 
     if (calling)
-      func_annotation = false;
+      func_annotation = TYPE_ANNOTATION_NONE;
 
     addMissingParameterNames(n, plist, arg_num);  // for $1_name substitutions done in Swig_typemap_attach_parms
     Swig_typemap_attach_parms("in", plist, 0);
     Swig_typemap_attach_parms("doc", plist, 0);
+    Swig_typemap_attach_parms("pytyping", plist, 0);
 
     if (Strcmp(ParmList_protostr(plist), "void") == 0) {
       // No parameters actually
@@ -1844,8 +1862,21 @@ public:
         Printf(pdocs, "%s\n", pdoc);
       }
       // Write the function annotation
-      if (func_annotation)
+      switch (func_annotation) {
+      case TYPE_ANNOTATION_NONE:
+        break;
+      case TYPE_ANNOTATION_C:
         Printf(doc, ": \"%s\"", type_str);
+        break;
+      case TYPE_ANNOTATION_TYPING:
+        {
+          String *docty = lookupPytyping(p);
+          if (docty)
+            Printf(doc, ": \"%s\"", docty);
+          Delete(docty);
+        }
+        break;
+      }
 
       // Write default value
       if (value && !calling) {
@@ -1971,22 +2002,13 @@ public:
             // Only do the autodoc if there isn't a docstring for the class
             String *str = Getattr(n, "feature:docstring");
             if (!str || Len(str) == 0) {
-              if (builtin) {
-                SwigType *name = Getattr(n, "name");
-                SwigType *sname = add_explicit_scope(name);
-                String *rname = SwigType_namestr(sname);
-                Printf(doc, "%s", rname);
-                Delete(sname);
-                Delete(rname);
+              String *classname_str = SwigType_namestr(real_classname);
+              if (CPlusPlus) {
+                Printf(doc, "Proxy of C++ %s class.", classname_str);
               } else {
-                String *classname_str = SwigType_namestr(real_classname);
-                if (CPlusPlus) {
-                  Printf(doc, "Proxy of C++ %s class.", classname_str);
-                } else {
-                  Printf(doc, "Proxy of C %s struct.", classname_str);
-                }
-                Delete(classname_str);
+                Printf(doc, "Proxy of C %s struct.", classname_str);
               }
+              Delete(classname_str);
             }
           }
           break;
@@ -2330,7 +2352,7 @@ public:
       return parms;
     }
 
-    bool funcanno = Equal(Getattr(n, "feature:python:annotations"), "c") ? true : false;
+    type_annotation_t funcanno = getTypeAnnotationMode(n);
     String *params = NewString("");
     String *_params = make_autodocParmList(n, false, ((in_class || has_self_for_count) ? 2 : 1), is_calling, funcanno);
 
@@ -2421,18 +2443,38 @@ public:
    * of the returning type, return a empty string for Python 2.x
    * ------------------------------------------------------------ */
   String *returnTypeAnnotation(Node *n) {
+    type_annotation_t anno = getTypeAnnotationMode(n);
+    if (anno == TYPE_ANNOTATION_NONE)
+      return NewStringEmpty();
+
     String *ret = 0;
     Parm *p = Getattr(n, "parms");
-    String *tm;
+    SwigType *match_type;
     /* Try to guess the returning type by argout typemap,
      * however the result may not accurate. */
     while (p) {
-      if ((tm = Getattr(p, "tmap:argout:match_type"))) {
-        tm = SwigType_str(tm, 0);
-        if (ret)
+      if ((match_type = Getattr(p, "tmap:argout:match_type"))) {
+        String *tm = 0;
+        switch (anno) {
+        case TYPE_ANNOTATION_C:
+          tm = SwigType_str(match_type, 0);
+          break;
+        case TYPE_ANNOTATION_TYPING:
+          tm = lookupPytyping(p, true);
+          if (!tm)
+            Swig_warning(
+              WARN_PYTHON_TYPEMAP_PYTYPING_UNDEF, input_file, line_number, "Missing required entry in pytyping typemap for %s\n", SwigType_str(match_type, 0));
+          break;
+        case TYPE_ANNOTATION_NONE:
+          break;  // unreachable
+        }
+
+        if (ret) {
           Printv(ret, ", ", tm, NULL);
-        else
+          Delete(tm);
+        } else {
           ret = tm;
+        }
         p = Getattr(p, "tmap:argout:next");
       } else {
         p = nextSibling(p);
@@ -2441,12 +2483,22 @@ public:
     /* If no argout typemap, then get the returning type from
      * the function prototype. */
     if (!ret) {
-      ret = Getattr(n, "type");
-      if (ret)
-        ret = SwigType_str(ret, 0);
+      switch (anno) {
+      case TYPE_ANNOTATION_C:
+        ret = Getattr(n, "type");
+        if (ret)
+          ret = SwigType_str(ret, 0);
+        break;
+      case TYPE_ANNOTATION_TYPING:
+        ret = lookupPytyping(n, true);
+        break;
+      case TYPE_ANNOTATION_NONE:
+        break;  // unreachable
+      }
     }
-    bool funcanno = Equal(Getattr(n, "feature:python:annotations"), "c") ? true : false;
-    return (ret && funcanno) ? NewStringf(" -> \"%s\"", ret) : NewString("");
+    String *result = ret ? NewStringf(" -> \"%s\"", ret) : NewStringEmpty();
+    Delete(ret);
+    return result;
   }
 
   /* ------------------------------------------------------------
@@ -2456,14 +2508,50 @@ public:
    * ------------------------------------------------------------ */
 
   String *variableAnnotation(Node *n) {
+    type_annotation_t anno = getTypeAnnotationMode(n);
+    if (anno == TYPE_ANNOTATION_NONE || GetFlag(n, "feature:python:annotations:novar"))
+      return NewStringEmpty();
+
     String *type = Getattr(n, "type");
-    if (type)
-      type = SwigType_str(type, 0);
-    bool anno = Equal(Getattr(n, "feature:python:annotations"), "c") ? true : false;
-    anno = GetFlag(n, "feature:python:annotations:novar") ? false : anno;
-    String *annotation = (type && anno) ? NewStringf(": \"%s\"", type) : NewString("");
+    if (type) {
+      switch (anno) {
+      case TYPE_ANNOTATION_C:
+        type = SwigType_str(type, 0);
+        break;
+      case TYPE_ANNOTATION_TYPING:
+        type = lookupPytyping(n);
+        break;
+      case TYPE_ANNOTATION_NONE:
+        break;  // unreachable
+      }
+    }
+    String *annotation = type ? NewStringf(": \"%s\"", type) : NewString("");
     Delete(type);
     return annotation;
+  }
+
+  /* ------------------------------------------------------------
+   * lookupPytyping()
+   *
+   * Lookup the annotation string for the PEP 484 pytyping
+   * typemap. If 'out' is true, look for overrides with 'out'
+   * too, as 'n' is a return value.
+   * ------------------------------------------------------------ */
+
+  String *lookupPytyping(Node *n, bool out = false) {
+    String *tm = Getattr(n, "tmap:pytyping");
+    if (tm)
+      tm = Copy(tm);
+    else
+      tm = Swig_typemap_lookup("pytyping", n, Swig_cresult_name(), 0);
+    if (tm && out) {
+      String *outty = Getattr(n, "tmap:pytyping:out");
+      if (outty) {
+        Delete(tm);
+        tm = Copy(outty);
+      }
+    }
+    return tm;
   }
 
   /* ------------------------------------------------------------
@@ -2516,7 +2604,12 @@ public:
    * ------------------------------------------------------------ */
 
   int check_kwargs(Node *n) const {
-    return (use_kw || GetFlag(n, "feature:kwargs")) && !GetFlag(n, "memberset") && !GetFlag(n, "memberget");
+    if (GetFlag(n, "memberset") || GetFlag(n, "memberget"))
+      return 0;
+    // Make sure an explicit kwargs feature overrides the -keyword command line option
+    if (Getattr(n, "feature:kwargs"))
+      return GetFlag(n, "feature:kwargs");
+    return use_kw;
   }
 
   /* ------------------------------------------------------------
@@ -3145,11 +3238,11 @@ public:
     director_method = is_member_director(n) && !is_smart_pointer() && !destructor;
     if (director_method) {
       Wrapper_add_local(f, "director", "Swig::Director *director = 0");
+      Append(f->code, "try {\n");
       Append(f->code, "director = SWIG_DIRECTOR_CAST(arg1);\n");
       if (dirprot_mode() && !is_public(n)) {
         Printf(f->code, "if (!director || !(director->swig_get_inner(\"%s\"))) {\n", name);
-        Printf(f->code, "SWIG_SetErrorMsg(PyExc_RuntimeError,\"accessing protected member %s\");\n", name);
-        Append(f->code, "SWIG_fail;\n");
+        Printf(f->code, "  Swig::DirectorMethodException::raise(\"accessing protected member %s\");\n", name);
         Append(f->code, "}\n");
       }
       Wrapper_add_local(f, "upcall", "bool upcall = false");
@@ -3160,11 +3253,6 @@ public:
         const char *self_parm = builtin_self ? "self" : "obj0";
         Printf(f->code, "upcall = (director && (director->swig_get_self()==%s));\n", self_parm);
       }
-    }
-
-    /* Emit the function call */
-    if (director_method) {
-      Append(f->code, "try {\n");
     } else {
       if (allow_thread) {
         String *preaction = NewString("");
@@ -3179,7 +3267,13 @@ public:
 
     Setattr(n, "wrap:name", wname);
 
-    Swig_director_emit_dynamic_cast(n, f);
+    /* Emit the function call */
+    if (Swig_director_emit_dynamic_cast(n, f)) {
+      /* Add protection */
+      Append(f->code, "if (!darg) {\n");
+      Append(f->code, "  Swig::DirectorMethodException::raise(\"'self' is not a director\");\n");
+      Append(f->code, "}\n");
+    }
     String *actioncode = emit_action(n);
 
     if (director_method) {
@@ -3721,7 +3815,8 @@ public:
           Printv(f_s, "\n", NIL);
           Printv(f_s, module, ".", iname, "_swigconstant(", module, ")\n", NIL);
         }
-        Printv(f_s, iname, " = ", module, ".", iname, "\n", NIL);
+        String *annotation = variableAnnotation(n);
+        Printv(f_s, iname, annotation, " = ", module, ".", iname, "\n", NIL);
         if (have_docstring(n))
           Printv(f_s, docstring(n, AUTODOC_CONST, tab4), "\n", NIL);
       }
@@ -4117,6 +4212,27 @@ public:
     Printf(f, "  return result;\n");
     Printf(f, "}\n\n");
 
+    /* For adding docstrings to constructor wrappers:
+       We can't just append {"__init__", ..., "doc"} to the tp_methods array as PyType_Ready
+       installs a wrapper_descriptor for tp_init in tp_dict["__init__"] with a fixed generic doc.
+       When the Python interpreter then adds the methods in the tp_methods, the "__init__" entry
+       is silently dropped as it already exists.
+
+       Instead, emit an adapter for tp_init and a standalone PyMethodDef and overwrite the slot
+       after PyType_Ready has been called. type.__call__ keeps using the tp_init slot directly, so
+       instantiation is unaffected. */
+    String *tp_init_doc = Getattr(n, "python:tp_init_doc");
+    if (tp_init_doc && builtin_tp_init) {
+      Printf(f, "SWIGINTERN PyObject *%s_pyinit_wrapper(PyObject *self, PyObject *args, PyObject *kwargs) {\n", templ);
+      Printf(f, "  if (%s(self, args, kwargs) < 0) return NULL;\n", builtin_tp_init);
+      Printf(f, "  Py_RETURN_NONE;\n");
+      Printf(f, "}\n");
+      Printf(f, "\n");
+      Printf(f, "SWIGINTERN PyMethodDef %s_pyinit_methoddef = {\n", templ);
+      Printf(f, "  \"__init__\", (PyCFunction)(void(*)(void))%s_pyinit_wrapper, METH_VARARGS|METH_KEYWORDS, \"%s\"\n", templ, tp_init_doc);
+      Printf(f, "};\n\n");
+    }
+
     // Methods
     Printf(f, "SWIGINTERN PyMethodDef %s_methods[] = {\n", templ);
     Dump(builtin_methods, f);
@@ -4140,7 +4256,10 @@ public:
       else
         quoted_symname = NewStringf("\"%s\"", symname);
     }
-    String *quoted_tp_doc_str = NewStringf("\"%s\"", getSlot(n, "feature:python:tp_doc"));
+    String *user_tp_doc = Getattr(n, "feature:python:tp_doc");
+    // Empty string, not NULL: when tp_doc is NULL, inspect.getdoc() walks the MRO and picks up
+    // the SwigPyObject base's docstring instead of returning "" like the non-builtin proxy does.
+    String *quoted_tp_doc_str = user_tp_doc ? NewStringf("\"%s\"", user_tp_doc) : NewString("\"\"");
     String *tp_init = NewString(builtin_tp_init ? Char(builtin_tp_init) : Swig_directorclass(n) ? "0" : "SwigPyBuiltin_BadInit");
     String *tp_flags = NewString("Py_TPFLAGS_DEFAULT|Py_TPFLAGS_BASETYPE|Py_TPFLAGS_CHECKTYPES");
     String *tp_flags_py3 = NewString("Py_TPFLAGS_DEFAULT|Py_TPFLAGS_BASETYPE");
@@ -4607,6 +4726,20 @@ public:
     Printv(f_init, "      return -1;\n", NIL);
     Printf(f_init, "    }\n", symname);
     Printf(f_init, "    SwigPyBuiltin_AddPublicSymbol(public_interface, \"%s\");\n", symname);
+    if (Getattr(n, "python:tp_init_doc")) {
+      /* Replace the default tp_init slot wrapper for __init__ with a method descriptor that carries
+         the doxygen docstring. type.__call__ still uses the tp_init slot for instantiation. */
+      Printf(f_init, "    {\n");
+      Printf(f_init, "      PyObject *init_desc = PyDescr_NewMethod(builtin_pytype, &%s_pyinit_methoddef);\n", templ);
+      Printf(f_init, "      if (!init_desc) return -1;\n");
+      Printf(f_init, "      if (PyDict_SetItemString(builtin_pytype->tp_dict, \"__init__\", init_desc) != 0) {\n");
+      Printf(f_init, "        SWIG_Py_DECREF(init_desc);\n");
+      Printf(f_init, "        return -1;\n");
+      Printf(f_init, "      }\n");
+      Printf(f_init, "      SWIG_Py_DECREF(init_desc);\n");
+      Printf(f_init, "      PyType_Modified(builtin_pytype);\n");
+      Printf(f_init, "    }\n");
+    }
     Printv(f_init, "    d = md;\n", NIL);
 
     Delete(clientdata);
@@ -4706,20 +4839,7 @@ public:
         Printv(base_class, abcs, NIL);
       }
 
-      if (builtin) {
-        if (have_docstring(n)) {
-          String *ds = cdocstring(n, AUTODOC_CLASS);
-          Setattr(n, "feature:python:tp_doc", ds);
-          Delete(ds);
-        } else {
-          SwigType *name = Getattr(n, "name");
-          SwigType *sname = add_explicit_scope(name);
-          String *rname = SwigType_namestr(sname);
-          Setattr(n, "feature:python:tp_doc", rname);
-          Delete(sname);
-          Delete(rname);
-        }
-      } else {
+      if (!builtin) {
         if (GetFlag(n, "feature:python:nondynamic"))
           Printv(f_shadow, "@_swig_add_metaclass(_SwigNonDynamicMeta)\n", NIL);
         Printv(f_shadow, "class ", class_name, NIL);
@@ -5212,6 +5332,18 @@ public:
           }
         }
         Delete(subfunc);
+      }
+
+      if (builtin && in_class) {
+        if (Node *node_with_doc = find_overload_with_docstring(n)) {
+          Node *cls = getCurrentClass();
+          if (cls && !Getattr(cls, "python:tp_init_doc")) {
+            String *ds = cdocstring(node_with_doc, AUTODOC_CTOR);
+            if (ds && Len(ds) > 0)
+              Setattr(cls, "python:tp_init_doc", ds);
+            Delete(ds);
+          }
+        }
       }
     }
     return SWIG_OK;

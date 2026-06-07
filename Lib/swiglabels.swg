@@ -33,7 +33,7 @@
 #   else
 #     define SWIGUNUSED
 #   endif
-# elif defined(__ICC)
+# elif defined(__ICC) || defined (__clang__)
 #   define SWIGUNUSED __attribute__ ((__unused__))
 # else
 #   define SWIGUNUSED
@@ -127,3 +127,6 @@
 #else
 # define SWIG_NOEXCEPT throw()
 #endif 
+
+#define SWIG_QUOTE_STRING(x) #x
+#define SWIG_STRINGIFY(x) SWIG_QUOTE_STRING(x)

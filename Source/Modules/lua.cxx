@@ -91,27 +91,17 @@ Lua Options (available with -lua)\n\
                        Incompatible with -elua/-eluac options.\n\
      -nomoduleglobal - Do not register the module name as a global variable \n\
                        but return the module table from calls to require.\n\
-     -no-old-metatable-bindings\n\
-                     - Disable support for old-style bindings name generation, some\n\
-                       old-style members scheme etc.\n\
-     -squash-bases   - Squashes symbols from all inheritance tree of a given class\n\
-                       into itself. Emulates pre-SWIG3.0 inheritance. Insignificantly\n\
-                       speeds things up, but increases memory consumption.\n\
 \n";
 
 static int nomoduleglobal = 0;
 static int elua_ltr = 0;
 static int eluac_ltr = 0;
 static int elua_emulate = 0;
-static int squash_bases = 0;
-/* The new metatable bindings were introduced in SWIG 3.0.0.
- * old_metatable_bindings in v2:
- *                    1. static methods will be put into the scope their respective class
- *                    belongs to as well as into the class scope itself. (only for classes without %nspace given)
- *                    2. The layout in elua mode is somewhat different
- */
-static int old_metatable_bindings = 1;
-static int old_compatible_names = 1;  // This flag can temporarily disable backward compatible names generation if old_metatable_bindings is enabled
+// Toggle for generating backward-compatible ClassName_member style names alongside the
+// scoped form. Always 1 at module scope: classHandler() and enumDeclaration() locally
+// save/restore around 0 when descending into an %nspace context, suppressing the
+// duplicate names for static members, constants and enum values nested in that scope.
+static int old_compatible_names = 1;
 
 /* NEW LANGUAGE NOTE:***********************************************
  To add a new language, you need to derive your class from
@@ -235,12 +225,6 @@ public:
         } else if (strcmp(argv[i], "-eluac") == 0) {
           eluac_ltr = 1;
           Swig_mark_arg(i);
-        } else if (strcmp(argv[i], "-no-old-metatable-bindings") == 0) {
-          Swig_mark_arg(i);
-          old_metatable_bindings = 0;
-        } else if (strcmp(argv[i], "-squash-bases") == 0) {
-          Swig_mark_arg(i);
-          squash_bases = 1;
         } else if (strcmp(argv[i], "-elua-emulate") == 0) {
           Swig_mark_arg(i);
           elua_emulate = 1;
@@ -335,8 +319,6 @@ public:
     } else {
       Printf(f_runtime, "#define SWIG_LUA_MODULE_GLOBAL\n");
     }
-    if (squash_bases)
-      Printf(f_runtime, "#define SWIG_LUA_SQUASH_BASES\n");
 
     /* Check if directors are enabled for this module */
     Node *mod = Getattr(n, "module");
@@ -556,6 +538,10 @@ public:
       if (!luaAddSymbol(lua_name, n)) {
         return SWIG_ERROR;
       }
+      // Check if this is a duplicate friend function that should be skipped
+      if (GetFlag(n, "lua:duplicate_friend")) {
+        return SWIG_OK;
+      }
     }
 
     /* NEW LANGUAGE NOTE:***********************************************
@@ -710,6 +696,7 @@ public:
 
     /* Add director upcall check after arguments are parsed */
     if (director_method) {
+      Append(f->code, "try {\n");
       Append(f->code, "director = SWIG_DIRECTOR_CAST(arg1);\n");
       Append(f->code, "upcall = (director && director->swig_is_upcall_active());\n");
     }
@@ -767,10 +754,21 @@ public:
     Setattr(n, "wrap:name", wname);
 
     /* Emit director dynamic cast for protected/non-public member access */
-    Swig_director_emit_dynamic_cast(n, f);
+    if (Swig_director_emit_dynamic_cast(n, f)) {
+      /* Add protection */
+      Append(f->code, "if (!darg) {\n");
+      Append(f->code, "  Swig::DirectorMethodException::raise(\"'self' is not a director\");\n");
+      Append(f->code, "}\n");
+    }
 
     /* Emit the function call */
     String *actioncode = emit_action(n);
+    if (director_method) {
+      Append(actioncode, "} catch (Swig::DirectorException &e) {\n");
+      Append(actioncode, "  SWIG_Lua_pusherrstring(L, e.what());\n");
+      Append(actioncode, "  SWIG_fail;\n");
+      Append(actioncode, "}\n");
+    }
 
     /* NEW LANGUAGE NOTE:***********************************************
        FIXME:
@@ -1096,7 +1094,7 @@ public:
     assert(s_const_tab);
     Printf(s_const_tab, "    %s,\n", constantRecord);
 
-    if ((eluac_ltr || elua_ltr) && old_metatable_bindings) {
+    if (eluac_ltr || elua_ltr) {
       s_const_tab = Getattr(nspaceHash, "constants");
       assert(s_const_tab);
       Printf(s_const_tab, "    %s,\n", constantRecord);
@@ -1151,16 +1149,23 @@ public:
       return SWIG_NOWRAP;
     }
 
-    bool make_v2_compatible = old_metatable_bindings && getCurrentClass() && old_compatible_names;
+    // v2 compatibility mode: add symbols with class prefix to NSpace
+    // Skip this for nested classes to avoid duplicate symbol errors
+    // (nested classes from different outer classes would have the same symbol name)
+    bool make_v2_compatible = getCurrentClass() && old_compatible_names;
+    bool in_nested_class = getCurrentClass() && Getattr(getCurrentClass(), "nested:outer") != 0;
 
-    if (make_v2_compatible) {
+    if (make_v2_compatible && !in_nested_class) {
       // Don't do anything for enums in C mode - they are already
       // wrapped correctly
       if (CPlusPlus || !current[ENUM_CONST]) {
         lua_name_v2 = Swig_name_member(0, proxy_class_name, lua_name);
         iname_v2 = Swig_name_member(0, proxy_class_name, iname);
         n_v2 = Copy(n);
-        if (!luaAddSymbol(iname_v2, n, getNSpace())) {
+        // For v2 compatibility, use NSpace for symbol registration
+        // This ensures proper scoping even for nested classes
+        String *v2_scope = getNSpace();
+        if (!luaAddSymbol(iname_v2, n, v2_scope)) {
           Swig_restore(n);
           return SWIG_ERROR;
         }
@@ -1310,27 +1315,101 @@ public:
     String *destructor_name = 0;
     String *nspace = getNSpace();
 
+    // Check if this is a nested class
+    bool has_outerclass = Getattr(n, "nested:outer") != 0 && !GetFlag(n, "feature:flatnested");
+
+    // Save class local variables for nested classes support
+    String *old_proxy_class_name = proxy_class_name;
+    String *old_full_proxy_class_name = full_proxy_class_name;
+    String *old_class_static_nspace = class_static_nspace;
+    String *old_destructor_action = destructor_action;
+    String *old_constructor_name = constructor_name;
+    int old_have_constructor = have_constructor;
+    int old_have_destructor = have_destructor;
+    bool old_current_NO_CPP = current[NO_CPP];
+
     constructor_name = 0;
     have_constructor = 0;
     have_destructor = 0;
     destructor_action = 0;
-    assert(class_static_nspace == 0);
-    assert(full_proxy_class_name == 0);
-    assert(proxy_class_name == 0);
+    class_static_nspace = 0;
+    full_proxy_class_name = 0;
+    proxy_class_name = 0;
 
     current[NO_CPP] = false;
 
     proxy_class_name = Getattr(n, "sym:name");
+
+    // For nested classes, we need to build the scope including outer classes
+    String *registration_scope = 0;  // Scope for registering the class in C arrays (with SwigStatic)
+    String *symbol_scope = 0;        // Scope for symbol registration (without SwigStatic)
+    if (has_outerclass) {
+      // Build the full path including outer classes
+      String *outer_classes_prefix = NewString("");
+      for (Node *outer = Getattr(n, "nested:outer"); outer != 0; outer = Getattr(outer, "nested:outer")) {
+        String *outer_name = Getattr(outer, "sym:name");
+        if (outer_name) {
+          if (Len(outer_classes_prefix) > 0) {
+            Push(outer_classes_prefix, NSPACE_SEPARATOR);
+          }
+          Push(outer_classes_prefix, outer_name);
+        }
+      }
+
+      // Build full path to outer class
+      String *outer_full_path = NewString("");
+      if (nspace && Len(nspace) > 0) {
+        Printv(outer_full_path, nspace, NSPACE_SEPARATOR, NIL);
+      }
+      Printv(outer_full_path, outer_classes_prefix, NIL);
+
+      // Symbol scope is the full path to the outer class (for duplicate detection)
+      symbol_scope = Copy(outer_full_path);
+
+      // Registration scope is the SwigStatic part of the outer class (for C array registration)
+      registration_scope = NewStringf("%s%sSwigStatic", outer_full_path, NSPACE_SEPARATOR);
+
+      // Build full_proxy_class_name including outer classes
+      if (nspace == 0 || Len(nspace) == 0) {
+        full_proxy_class_name = NewStringf("%s%s%s", outer_classes_prefix, NSPACE_SEPARATOR, proxy_class_name);
+      } else {
+        full_proxy_class_name = NewStringf("%s%s%s%s%s", nspace, NSPACE_SEPARATOR, outer_classes_prefix, NSPACE_SEPARATOR, proxy_class_name);
+      }
+
+      Delete(outer_classes_prefix);
+      Delete(outer_full_path);
+    } else {
+      // Normal class (not nested)
+      symbol_scope = nspace ? Copy(nspace) : 0;
+      registration_scope = nspace ? Copy(nspace) : 0;
+      if (nspace == 0)
+        full_proxy_class_name = NewStringf("%s", proxy_class_name);
+      else
+        full_proxy_class_name = NewStringf("%s%s%s", nspace, NSPACE_SEPARATOR, proxy_class_name);
+    }
+
     // We have to enforce nspace here, because technically we are already
     // inside class parsing (getCurrentClass != 0), but we should register
-    // class in its parent namespace
-    if (!luaAddSymbol(proxy_class_name, n, nspace))
+    // class in its parent namespace (or outer class for nested classes)
+    if (!luaAddSymbol(proxy_class_name, n, symbol_scope)) {
+      if (symbol_scope)
+        Delete(symbol_scope);
+      if (registration_scope)
+        Delete(registration_scope);
+      // Restore class local variables before returning error
+      proxy_class_name = old_proxy_class_name;
+      full_proxy_class_name = old_full_proxy_class_name;
+      class_static_nspace = old_class_static_nspace;
+      destructor_action = old_destructor_action;
+      constructor_name = old_constructor_name;
+      have_constructor = old_have_constructor;
+      have_destructor = old_have_destructor;
+      current[NO_CPP] = old_current_NO_CPP;
       return SWIG_ERROR;
+    }
 
-    if (nspace == 0)
-      full_proxy_class_name = NewStringf("%s", proxy_class_name);
-    else
-      full_proxy_class_name = NewStringf("%s.%s", nspace, proxy_class_name);
+    if (symbol_scope)
+      Delete(symbol_scope);
 
     assert(full_proxy_class_name);
     mangled_full_proxy_class_name = Swig_name_mangle_string(full_proxy_class_name);
@@ -1354,6 +1433,17 @@ public:
     if (GetFlag(emitted, mangled_fr_t)) {
       full_proxy_class_name = 0;
       proxy_class_name = 0;
+      if (registration_scope)
+        Delete(registration_scope);
+      // Restore class local variables before returning
+      proxy_class_name = old_proxy_class_name;
+      full_proxy_class_name = old_full_proxy_class_name;
+      class_static_nspace = old_class_static_nspace;
+      destructor_action = old_destructor_action;
+      constructor_name = old_constructor_name;
+      have_constructor = old_have_constructor;
+      have_destructor = old_have_destructor;
+      current[NO_CPP] = old_current_NO_CPP;
       return SWIG_NOWRAP;
     }
     SetFlag(emitted, mangled_fr_t);
@@ -1408,14 +1498,23 @@ public:
     // Catch all: eg. a class with only static functions and/or variables will not have 'remembered'
     String *wrap_class_name = Swig_name_wrapper(NewStringf("class_%s", mangled_full_proxy_class_name));
     String *wrap_class = NewStringf("&%s", wrap_class_name);
+
+    // Replace storing a pointer to underlying class with a smart pointer (intended for use with non-intrusive smart pointers)
+    SwigType *smart = Getattr(n, "smart");
+    if (smart) {
+      SwigType *psmart = Copy(smart);
+      SwigType_add_pointer(psmart);
+      SwigType_remember_clientdata(psmart, wrap_class);
+      Delete(psmart);
+    }
     SwigType_remember_clientdata(t, wrap_class);
 
     String *rt = Copy(getClassType());
     SwigType_add_pointer(rt);
 
-    // Adding class to appropriate namespace
-    registerClass(nspace, wrap_class_name);
-    Hash *nspaceHash = getCArraysHash(nspace);
+    // Adding class to appropriate namespace (or outer class's static part for nested classes)
+    registerClass(registration_scope, wrap_class_name);
+    Hash *nspaceHash = getCArraysHash(registration_scope);
 
     // Register the class structure with the type checker
     //    Printf(f_init,"SWIG_TypeClientData(SWIGTYPE%s, (void *) &_wrap_class_%s);\n", SwigType_manglestr(t), mangled_full_proxy_class_name);
@@ -1562,6 +1661,19 @@ public:
     Delete(full_proxy_class_name);
     full_proxy_class_name = 0;
     proxy_class_name = 0;
+    if (registration_scope)
+      Delete(registration_scope);
+
+    // Restore class local variables for nested classes support
+    proxy_class_name = old_proxy_class_name;
+    full_proxy_class_name = old_full_proxy_class_name;
+    class_static_nspace = old_class_static_nspace;
+    destructor_action = old_destructor_action;
+    constructor_name = old_constructor_name;
+    have_constructor = old_have_constructor;
+    have_destructor = old_have_destructor;
+    current[NO_CPP] = old_current_NO_CPP;
+
     return SWIG_OK;
   }
 
@@ -1686,7 +1798,7 @@ public:
     const int result = Language::staticmemberfunctionHandler(n);
     registerMethod(n);
 
-    if (old_metatable_bindings && result == SWIG_OK && old_compatible_names) {
+    if (result == SWIG_OK && old_compatible_names) {
       Swig_require("lua_staticmemberfunctionHandler", n, "*lua:name", NIL);
       String *lua_name = Getattr(n, "lua:name");
       // Although this function uses Swig_name_member, it actually generates the Lua name,
@@ -1731,7 +1843,7 @@ public:
 
     if (result == SWIG_OK) {
       // This will add static member variable to the class namespace with name ClassName_VarName
-      if (old_metatable_bindings && old_compatible_names) {
+      if (old_compatible_names) {
         Swig_save("lua_staticmembervariableHandler", n, "lua:name", NIL);
         String *lua_name = Getattr(n, "lua:name");
         // Although this function uses Swig_name_member, it actually generates the Lua name,
@@ -1744,7 +1856,7 @@ public:
           registerVariable(n, true, getNSpace());
         }
         // If static member variable was wrapped as a constant, then
-        // constant wrapper has already performed all actions necessary for old_metatable_bindings
+        // constant wrapper has already performed all actions necessary
         Delete(v2_name);
         Swig_restore(n);
       }
@@ -2044,7 +2156,7 @@ public:
     // For the sake of compiling with -Wall -Werror we print constants
     // only when necessary
     int need_constants = 0;
-    if ((elua_ltr || eluac_ltr) && (old_metatable_bindings))
+    if (elua_ltr || eluac_ltr)
       need_constants = 1;
     else if (!is_instance)  // static part need constants tab
       need_constants = 1;
@@ -2059,8 +2171,7 @@ public:
     String *methods_tab = Getattr(carrays_hash, "methods");
     String *metatable_tab_name = Getattr(carrays_hash, "metatable:name");
     if (elua_ltr || eluac_ltr) {
-      if (old_metatable_bindings)
-        Printv(methods_tab, tab4, "{LSTRKEY(\"const\"), LROVAL(", const_tab_name, ")},\n", NIL);
+      Printv(methods_tab, tab4, "{LSTRKEY(\"const\"), LROVAL(", const_tab_name, ")},\n", NIL);
       if (elua_ltr) {
         Printv(methods_tab, tab4, "{LSTRKEY(\"__metatable\"), LROVAL(", metatable_tab_name, ")},\n", NIL);
       }
@@ -2288,7 +2399,10 @@ public:
    * luaAddSymbol()
    *
    * Our implementation of addSymbol. Determines scope correctly, then
-   * forwards to Language::addSymbol
+   * forwards to Language::addSymbol.
+   *
+   * For friend functions, we allow duplicate symbols in the same Lua scope
+   * if they come from different C++ namespaces (they will be overloaded).
    * ----------------------------------------------------------------------------- */
 
   int luaAddSymbol(const String *s, const Node *n) {
@@ -2299,14 +2413,34 @@ public:
   /* -----------------------------------------------------------------------------
    * luaAddSymbol()
    *
-   * Overload. Enforces given scope. Actually, it simply forwards call to Language::addSymbol
+   * Overload. Enforces given scope.
+   *
+   * Special handling for friend functions: when a friend function from one
+   * C++ namespace/class is being added to the Lua global scope and a symbol
+   * with the same name already exists (from a different C++ namespace/class),
+   * we don't report an error. Instead, we mark the node as "lua:duplicate"
+   * so that functionWrapper can skip generating the wrapper.
    * ----------------------------------------------------------------------------- */
 
   int luaAddSymbol(const String *s, const Node *n, const_String_or_char_ptr scope) {
-    int result = Language::addSymbol(s, n, scope);
-    if (!result)
-      Printf(stderr, "addSymbol(%s to scope %s) failed\n", s, scope);
-    return result;
+    // Check if this is a friend function (stored as "friend" in storage attribute)
+    String *storage = Getattr(const_cast<Node *>(n), "storage");
+    bool is_friend = storage && Strcmp(storage, "friend") == 0;
+
+    // If it's a friend function and we're in global scope (current[NO_CPP] is true),
+    // check if symbol already exists
+    if (is_friend && current[NO_CPP]) {
+      Node *existing = symbolLookup(s, scope);
+      if (existing && existing != n) {
+        // Symbol already exists - this is a friend function from a different
+        // C++ namespace that maps to the same Lua scope. Mark as duplicate
+        // so functionWrapper can skip generating a wrapper.
+        SetFlag(const_cast<Node *>(n), "lua:duplicate_friend");
+        return 1;  // Return success to avoid error
+      }
+    }
+
+    return Language::addSymbol(s, n, scope);
   }
 
   /* ---------------------------------------------------------------
@@ -2791,6 +2925,14 @@ public:
   int classDirectorDisown(Node *n) {
     (void)n;
     return SWIG_OK;
+  }
+
+  /* ------------------------------------------------------------
+   * nestedClassesSupport()
+   * ------------------------------------------------------------ */
+
+  NestedClassSupport nestedClassesSupport() const {
+    return NCS_Full;
   }
 };
 
